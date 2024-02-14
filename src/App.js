@@ -1,15 +1,42 @@
+import React, { useEffect, useState } from 'react';
+
 function App() {
+	const [timeString, setTimeString] = useState('');
+
+	useEffect(() => {
+		const updateClock = () => {
+			let currentTime = new Date();
+
+			let hours = currentTime.getHours();
+			let minutes = currentTime.getMinutes();
+			let seconds = currentTime.getSeconds();
+
+			hours = hours < 10 ? '0' + hours : hours;
+			minutes = minutes < 10 ? '0' + minutes : minutes;
+			seconds = seconds < 10 ? '0' + seconds : seconds;
+
+			let newTimeString = hours + ':' + minutes + ':' + seconds;
+			setTimeString(newTimeString);
+		};
+
+		const intervalId = setInterval(updateClock, 1000);
+
+		// Clear interval when the component is unmounted
+		return () => clearInterval(intervalId);
+
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
 	return (
 		<div className="container mx-auto">
-			<div className="flex justify-center text-9xl">
+			<div className="flex flex-col items-center gap-4 justify-center">
 				<svg
 					width="100px"
 					height="100px"
 					viewBox="0 0 128 128"
-					xmlns="http://www.w3.org/2000/svg"
-					aria-hidden="true"
+					ariaHidden="true"
 					role="img"
-					class="iconify iconify--noto"
+					className="iconify iconify--noto"
 					preserveAspectRatio="xMidYMid meet">
 					<path
 						d="M77.52 83.78c4.93 2.51 14.08 4.86 18.94 4.15c12.6-1.85 21.69-9.13 27.2-19.22c2.33-4.27 2.53-12.92-1.21-13.86c-4.74-1.19-10.37-.26-19.11 3.87c-8.89 4.2-11.03 10.84-21.5 5.73"
@@ -39,13 +66,7 @@ function App() {
 					<path
 						d="M48.27 13.23c-5.59-7.84-11.8-9.39-18.63-9.39c-7.37 0-14.36 5.41-17.58 9.69c-2.6 3.47-5.84 9.11-6.3 15.6c-.36 5.1 1.26 9.87 6.3 13.4c5.04 3.53 25.07 7.74 33.29 2.09c7.2-4.95 9.64-11.6 8.92-17.18c-.51-4.01-1.67-8.14-6-14.21z"
 						fill="#b38a6d"></path>
-					<ellipse
-						transform="rotate(-17.768 36.335 17.7)"
-						cx="36.34"
-						cy="17.7"
-						rx="2.43"
-						ry="3.15"
-						fill="#212121"></ellipse>
+					<ellipse transform="rotate(-17.768 36.335 17.7)" cx="36.34" cy="17.7" rx="2.43" ry="3.15" fill="#212121"></ellipse>
 					<path
 						d="M15.62 32.75c-.52 3.64 1.09 9.12 2.44 9.04c1.12-.07 1.38-2.29 1.38-2.29s.96 2.84 2.72 2.66c1.68-.18 1.6-6.19 2.03-9.13l-5.7-2.33l-2.87 2.05z"
 						fill="#ffecb3"></path>
@@ -71,6 +92,8 @@ function App() {
 						d="M6.93 47.01c1.7-2.66 4.7-3.49 7.14-3.11c.11.02.41.13.49.2c.16.15.09.44-.09.58c-.17.14-.41.17-.62.23c-1.22.3-2.32 1.23-2.53 2.47c.87-.36 1.91-.28 2.72.19c.22.13.46.39.33.62c-.07.13-.24.18-.39.23c-1.06.34-1.78 1.45-1.95 2.55c.57-.12 1.16-.25 1.74-.15c.58.1 1.35.59 1.29 1.04c-.07.48-1.37.16-1.96 1.19c-.41.72-.63 1.59-1.27 2.11c-.59.48-1.44.58-2.17.36c-.73-.21-1.36-.7-1.86-1.27c-1.71-1.95-2.08-4.96-.87-7.24"
 						fill="#825b4e"></path>
 				</svg>
+
+				<p className="text-center text-6xl font-semibold">{timeString}</p>
 			</div>
 		</div>
 	);
