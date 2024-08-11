@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import ChatContent from './components/ChatContent';
 import ChatFooter from './components/ChatFooter';
 import ChatHeader from './components/ChatHeader';
-import ChatRules from './components/ChatRules';
+// import ChatRules from './components/ChatRules';
 import OnlineOffline from './components/OnlineOffline';
 import { firebaseCollections, firebaseFirestore } from './config/firebaseConfig';
 
@@ -22,7 +22,8 @@ function App() {
 				id: doc.id,
 			}));
 
-			setAllMessages(messages);
+			const sortedMessages = messages.sort((a, b) => new Date(b.date) - new Date(a.date));
+			setAllMessages(sortedMessages.reverse());
 		});
 		return () => {
 			unsub();
@@ -30,7 +31,7 @@ function App() {
 	}, [setAllMessages]);
 
 	return (
-		<div className="container mx-auto">
+		<div className="container mx-auto px-2">
 			<div className="flex flex-col items-center gap-4 justify-center">
 				<img src="sparrow.svg" alt="Sparrow" />
 			</div>
@@ -38,9 +39,9 @@ function App() {
 				<OnlineOffline />
 				{/* <Timer /> */}
 			</div>
-			<div className="flex items-center justify-center w-full">
+			{/* <div className="flex items-center justify-center w-full">
 				<ChatRules />
-			</div>
+			</div> */}
 			<div className="flex flex-col items-center justify-center w-full">
 				<ChatHeader />
 				<ChatContent messages={allMessages} />
