@@ -30,16 +30,19 @@ const ChatFooter = () => {
 				loverMSG.includes('підор') ||
 				loverMSG.includes('підр') ||
 				loverMSG.includes('підрас') ||
+				loverMSG.includes('пісюн') ||
+				loverMSG.includes('піська') ||
 				loverMSG.includes('підарас'))
 		) {
 			console.log('you have been blocked');
 		}
 
 		// send message
-		if (message) {
+		if (message && navigator.onLine) {
 			await messages
 				.create({
 					message,
+					date: new Date().toISOString(),
 				})
 				.then(() => console.log('sent'));
 		}
@@ -49,9 +52,11 @@ const ChatFooter = () => {
 
 	return (
 		<div className="w-full border-2 rounded-b-md border-slate-300 py-3">
-			<form action="post" onSubmit={onSubmit}>
-				<input type="text" name="message" className='w-full border-2 border-dashed border-orange-400'  />
-				<button className='w-full text-center border-2 border-green-500'>Send</button>
+			<form action="post" onSubmit={onSubmit} className="w-full flex items-center">
+				<input type="text" name="message" className="w-full rounded-lg border-2 border-dashed border-emerald-900" />
+				<button className="w-fit text-center rounded-lg" disabled={!navigator.onLine}>
+					<img src="send.svg" alt="Send" className="size-10" />
+				</button>
 			</form>
 		</div>
 	);
