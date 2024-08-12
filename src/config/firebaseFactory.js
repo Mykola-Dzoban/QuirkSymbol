@@ -125,6 +125,14 @@ class FirebaseFactory {
 		await deleteDoc(docRef);
 	}
 
+	async deleteAll() {
+		const ref = collection(this.firestore, this.collectionName);
+		const querySnapshot = await getDocs(ref);
+		querySnapshot.forEach((doc) => {
+			deleteDoc(doc.ref);
+		});
+	}
+
 	async query(filter) {
 		const col = collection(this.firestore, this.collectionName);
 		const q = query(col, ...(filter instanceof Array ? filter : [filter]));
