@@ -7,6 +7,13 @@ const ChatFooter = () => {
 
 		const message = e.target.elements.message.value;
 		const loverMSG = message.toLowerCase();
+		if (message === '!clear!') {
+			await messages.deleteAll();
+
+			toast.success({ message: 'Chat cleared' });
+
+			return;
+		}
 		if (
 			message &&
 			(loverMSG.includes('fuck') ||
@@ -35,7 +42,10 @@ const ChatFooter = () => {
 				loverMSG.includes('піська') ||
 				loverMSG.includes('підарас'))
 		) {
-			console.log('you have been blocked');
+			toast.warn({ message: 'you have been blocked' });
+
+			e.target.reset();
+			return;
 		}
 
 		// send message
@@ -45,9 +55,8 @@ const ChatFooter = () => {
 					message,
 					date: new Date().toISOString(),
 				})
-				.then(() => console.log('sent'));
-
-			toast.success({ message: 'Message sent' });
+				.then(() => toast.success({ message: 'Message sent success' }))
+				.catch(() => toast.error({ message: 'Message sent error' }));
 		}
 
 		e.target.reset();

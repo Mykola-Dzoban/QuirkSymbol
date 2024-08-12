@@ -32,7 +32,7 @@ function App() {
 	}, [setAllMessages]);
 
 	return (
-		<ToastProvider positionY="top" positionX="right">
+		<ToastProvider positionY="bottom" positionX="right">
 			<div className="container mx-auto px-2">
 				<div className="flex flex-col items-center gap-4 justify-center">
 					<img src="sparrow.svg" alt="Sparrow" />
