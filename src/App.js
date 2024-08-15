@@ -45,7 +45,7 @@ function App() {
 				<ChatRules />
 			</div> */}
 				<div className="flex flex-col items-center justify-center w-full">
-					<ChatHeader />
+					<ChatHeader headerName={"chat"} />
 					<ChatContent messages={allMessages} />
 					<ChatFooter />
 				</div>

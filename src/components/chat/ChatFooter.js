@@ -15,32 +15,7 @@ const ChatFooter = () => {
 			return;
 		}
 		if (
-			message &&
-			(loverMSG.includes('fuck') ||
-				loverMSG.includes('shit') ||
-				loverMSG.includes('ass') ||
-				loverMSG.includes('asshole') ||
-				loverMSG.includes('bitch') ||
-				loverMSG.includes('dick') ||
-				loverMSG.includes('cunt') ||
-				loverMSG.includes('pussy') ||
-				loverMSG.includes('penis') ||
-				loverMSG.includes('vagina') ||
-				loverMSG.includes('блять') ||
-				loverMSG.includes('пизда') ||
-				loverMSG.includes('сука') ||
-				loverMSG.includes('хуй') ||
-				loverMSG.includes('дурак') ||
-				loverMSG.includes('пидор') ||
-				loverMSG.includes('пидр') ||
-				loverMSG.includes('пидрас') ||
-				loverMSG.includes('пидарас') ||
-				loverMSG.includes('підор') ||
-				loverMSG.includes('підр') ||
-				loverMSG.includes('підрас') ||
-				loverMSG.includes('пісюн') ||
-				loverMSG.includes('піська') ||
-				loverMSG.includes('підарас'))
+			message && checkMessageFunc(loverMSG)
 		) {
 			toast.warn({ message: 'you have been blocked' });
 

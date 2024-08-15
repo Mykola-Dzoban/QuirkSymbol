@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import Message from '../chat-components/Message';
 
 const ChatContent = ({ messages, ...props }) => {
 	const messagesEndRef = useRef(null);
@@ -14,13 +15,7 @@ const ChatContent = ({ messages, ...props }) => {
 	return (
 		<div className="w-full p-2 border-x-2 border-slate-300 h-[500px] overflow-y-auto">
 			{messages.map((message, index) => (
-				<div
-					key={message.id}
-					ref={index === messages.length - 1 ? messagesEndRef : null}
-					className="flex items-center gap-2 mt-1">
-					<div className="w-6 h-6 rounded-full bg-purple-500"></div>
-					<p className="bg-slate-300 p-2 rounded-lg">{message.message}</p>
-				</div>
+				<Message key={message.id} message={message.message} ref={index === messages.length - 1 ? messagesEndRef : null} />
 			))}
 		</div>
 	);
