@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // Профіль користувача — створює/читає/пише лише сам власник (див. useAuthStore.initializeAuthListener).
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    function isMember(projectData) {
+      return signedIn() && request.auth.token.email in projectData.members;
+    }
+
+    // Публічне посилання "тільки перегляд" (`/view/{id}`) — без входу, вмикає власник проєкту.
+    function isPublicView(projectData) {
+      return projectData.publicViewEnabled == true;
+    }
+
+    // Дошка — спільний воркспейс усіх email з `members` (власник теж у цьому списку).
+    match /projects/{projectId} {
+      allow read: if isMember(resource.data) || isPublicView(resource.data);
+      allow update, delete: if isMember(resource.data);
+      allow create: if signedIn() && request.auth.token.email in request.resource.data.members;
+
+      // Фігури — по документу на кожну, щоб живі співредактори не затирали одне одного (див. план).
+      // Читання дозволене і публічним "view-only" відвідувачам, запис — лише учасникам.
+      match /elements/{elementId} {
+        allow read: if isMember(get(/databases/$(database)/documents/projects/$(projectId)).data) ||
+          isPublicView(get(/databases/$(database)/documents/projects/$(projectId)).data);
+        allow write: if isMember(get(/databases/$(database)/documents/projects/$(projectId)).data);
+      }
+
+      // Треди коментарів (Фаза 2) — будь-який учасник читає/пише (спільне редагування, як і фігури).
+      match /comments/{commentId} {
+        allow read, write: if isMember(get(/databases/$(database)/documents/projects/$(projectId)).data);
+      }
+
+      // Presence (Фаза 2) — id документа = uid учасника, пише лише сам про себе, читають усі учасники.
+      match /presence/{presenceUid} {
+        allow read: if isMember(get(/databases/$(database)/documents/projects/$(projectId)).data);
+        allow write: if isMember(get(/databases/$(database)/documents/projects/$(projectId)).data) && request.auth.uid == presenceUid;
+      }
+    }
+  }
+}

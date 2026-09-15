@@ -1,0 +1,517 @@
+import Konva from 'konva';
+import type { KonvaEventObject } from 'konva/lib/Node';
+import { useEffect, useRef, useState } from 'react';
+import { Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
+import { groupMembers, visibleElements, type BoardElement } from '../../../domain/board';
+import { elementBounds, normalizeRect, rectContains, rectsIntersect, snapMove, type Rect as GeomRect } from '../../../domain/geometry';
+import { snapPoint } from '../../../domain/snapping';
+import { toScreen } from '../../../domain/view';
+import { useBoardStore } from '../../../store/useBoardStore';
+import { downloadDataUrl } from '../../../utils/downloadFile';
+import { useElementSize } from '../../../utils/useElementSize';
+import CommentComposer from '../render/CommentComposer';
+import CommentPins from '../render/CommentPins';
+import ElementShape from '../render/ElementShape';
+import FrameLabelEditor from '../render/FrameLabelEditor';
+import GridDots from '../render/GridDots';
+import PresenceCursors from '../render/PresenceCursors';
+import TextEditorOverlay from '../render/TextEditorOverlay';
+import { canvasTheme } from '../render/theme';
+
+const TRANSFORMABLE = new Set(['rectangle', 'ellipse', 'diamond', 'frame']);
+const MIN_DRAW_SIZE = 4;
+/** Магнітна відстань до країв/центрів інших фігур під час перетягування — у ЕКРАННИХ пікселях (не world). */
+const SNAP_THRESHOLD_PX = 8;
+
+export default function BoardCanvas() {
+	const { ref, width, height } = useElementSize<HTMLDivElement>();
+	const stageRef = useRef<Konva.Stage | null>(null);
+	const trRef = useRef<Konva.Transformer | null>(null);
+
+	const {
+		elements,
+		selected,
+		tool,
+		view,
+		snapEnabled,
+		uid,
+		comments,
+		presence,
+		activeCommentId,
+		setView,
+		setStageSize,
+		zoomAt,
+		select,
+		toggleSelect,
+		clearSelection,
+		startElement,
+		updateElementLive,
+		finishElement,
+		cancelElement,
+		beginDrag,
+		dragBy,
+		endDrag,
+		deleteSelected,
+		registerStageExport,
+		addComment,
+		setActiveComment,
+		setCommentsOpen,
+		updateCursor,
+		renameFrame,
+	} = useBoardStore();
+
+	const [drawingId, setDrawingId] = useState<string | null>(null);
+	const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
+	const [marquee, setMarquee] = useState<{ a: { x: number; y: number }; b: { x: number; y: number } } | null>(null);
+	const [editingTextId, setEditingTextId] = useState<string | null>(null);
+	const [renamingFrameId, setRenamingFrameId] = useState<string | null>(null);
+	const [composerAt, setComposerAt] = useState<{ x: number; y: number } | null>(null);
+	const panRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+	const dragLastWorld = useRef<{ x: number; y: number } | null>(null);
+	const dragStartWorld = useRef<{ x: number; y: number } | null>(null);
+	const dragOriginalBoxes = useRef<GeomRect[]>([]);
+	const dragIds = useRef<Set<string>>(new Set());
+	const dragAppliedOffset = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+	const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+	const erasingRef = useRef(false);
+	const spaceRef = useRef(false);
+
+	useEffect(() => {
+		setStageSize({ width, height });
+	}, [width, height, setStageSize]);
+
+	// Реєструємо один раз — читає свіжий стан через getState(), тож не залежить від замикання React.
+	useEffect(() => {
+		registerStageExport(() => {
+			const stage = stageRef.current;
+			if (!stage) return;
+			const state = useBoardStore.getState();
+			const visible = visibleElements(state.elements);
+
+			// Ховаємо ручки Transformer'а на час знімку, щоб не потрапили в експорт.
+			const prevNodes = trRef.current?.nodes() ?? [];
+			trRef.current?.nodes([]);
+			stage.batchDraw();
+
+			let uri: string;
+			if (visible.length === 0) {
+				uri = stage.toDataURL({ pixelRatio: 2 });
+			} else {
+				let minX = Infinity;
+				let minY = Infinity;
+				let maxX = -Infinity;
+				let maxY = -Infinity;
+				for (const el of visible) {
+					const b = elementBounds(el);
+					minX = Math.min(minX, b.x);
+					minY = Math.min(minY, b.y);
+					maxX = Math.max(maxX, b.x + b.width);
+					maxY = Math.max(maxY, b.y + b.height);
+				}
+				const pad = 24;
+				const v = state.view;
+				uri = stage.toDataURL({
+					x: (minX - pad) * v.scale + v.offsetX,
+					y: (minY - pad) * v.scale + v.offsetY,
+					width: (maxX - minX + pad * 2) * v.scale,
+					height: (maxY - minY + pad * 2) * v.scale,
+					pixelRatio: 2,
+				});
+			}
+
+			trRef.current?.nodes(prevNodes);
+			stage.batchDraw();
+			downloadDataUrl(uri, 'quirksymbol.png');
+		});
+		return () => registerStageExport(null);
+	}, [registerStageExport]);
+
+	useEffect(() => {
+		const down = (e: KeyboardEvent) => e.code === 'Space' && (spaceRef.current = true);
+		const up = (e: KeyboardEvent) => e.code === 'Space' && (spaceRef.current = false);
+		window.addEventListener('keydown', down);
+		window.addEventListener('keyup', up);
+		return () => {
+			window.removeEventListener('keydown', down);
+			window.removeEventListener('keyup', up);
+		};
+	}, []);
+
+	const els = visibleElements(elements);
+
+	useEffect(() => {
+		const tr = trRef.current;
+		const stage = stageRef.current;
+		if (!tr || !stage) return;
+		if (tool === 'select' && selected.length === 1) {
+			const el = elements[selected[0]];
+			if (el && TRANSFORMABLE.has(el.type)) {
+				const node = stage.findOne(`#${el.id}`);
+				if (node) {
+					tr.nodes([node]);
+					tr.getLayer()?.batchDraw();
+					return;
+				}
+			}
+		}
+		tr.nodes([]);
+	}, [selected, tool, elements]);
+
+	const pointerWorld = (): { x: number; y: number } | null => {
+		const pos = stageRef.current?.getPointerPosition();
+		if (!pos) return null;
+		return { x: (pos.x - view.offsetX) / view.scale, y: (pos.y - view.offsetY) / view.scale };
+	};
+
+	const onWheel = (e: KonvaEventObject<WheelEvent>) => {
+		e.evt.preventDefault();
+		const pos = stageRef.current?.getPointerPosition();
+		if (pos) zoomAt(pos.x, pos.y, e.evt.deltaY < 0 ? 1.08 : 1 / 1.08);
+	};
+
+	const eraseAtPointer = () => {
+		const stage = stageRef.current;
+		if (!stage) return;
+		const pos = stage.getPointerPosition();
+		if (!pos) return;
+		const shape = stage.getIntersection(pos);
+		const id = shape?.id();
+		if (id && elements[id] && !elements[id].deleted) {
+			select([id]);
+			deleteSelected();
+		}
+	};
+
+	/** Елементи (крім самого кадру), чий bounding box повністю лежить всередині кадру `frame` — рухаються разом з ним. */
+	const frameChildren = (frame: BoardElement): string[] => {
+		const fb = elementBounds(frame);
+		return els.filter((e) => e.id !== frame.id && e.type !== 'frame' && rectContains(fb, elementBounds(e))).map((e) => e.id);
+	};
+
+	const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+		if (editingTextId || composerAt || renamingFrameId) return;
+		// Canvas не є фокусованим елементом — без цього браузер вважає mousedown кліком "мимо" і
+		// забирає фокус з щойно змонтованого <textarea> (text tool) ще до mouseup того самого кліку.
+		e.evt.preventDefault();
+		if (tool === 'pan' || spaceRef.current || e.evt.button === 1) {
+			const p = stageRef.current!.getPointerPosition()!;
+			panRef.current = { x: p.x, y: p.y, ox: view.offsetX, oy: view.offsetY };
+			return;
+		}
+		if (e.evt.button === 2) return;
+		const world = pointerWorld();
+		if (!world) return;
+		const clickedEmpty = e.target === e.target.getStage();
+
+		if (tool === 'eraser') {
+			erasingRef.current = true;
+			eraseAtPointer();
+			return;
+		}
+
+		if (tool === 'comment') {
+			if (!clickedEmpty) return;
+			setComposerAt(world);
+			return;
+		}
+
+		if (tool === 'select') {
+			if (clickedEmpty) {
+				if (!e.evt.shiftKey) clearSelection();
+				setMarquee({ a: world, b: world });
+				return;
+			}
+			const id = e.target.id();
+			if (!id || !elements[id]) return;
+			const groupIds = groupMembers(elements, id);
+			if (e.evt.shiftKey) {
+				if (groupIds.length > 1) {
+					const allSelected = groupIds.every((gid) => selected.includes(gid));
+					select(allSelected ? selected.filter((s) => !groupIds.includes(s)) : [...new Set([...selected, ...groupIds])]);
+				} else {
+					toggleSelect(id);
+				}
+				return;
+			}
+			// Клік по фігурі, що входить у групу, виділяє всю групу (як в Excalidraw) — якщо тільки
+			// вона вже не є частиною поточного (можливо, ширшого) marquee-виділення.
+			const groupAlreadySelected = groupIds.every((gid) => selected.includes(gid));
+			const nextSelected = groupAlreadySelected ? selected : groupIds;
+			if (!groupAlreadySelected) select(groupIds);
+			// Кадр тягне за собою фігури, що геометрично лежать у ньому повністю — без персистентного
+			// зв'язку (без окремого `frameId` на дітях): перелік рахуємо один раз, на старті цього drag.
+			const extraIds = nextSelected.flatMap((sid) => {
+				const selEl = elements[sid];
+				return selEl?.type === 'frame' ? frameChildren(selEl) : [];
+			});
+			beginDrag(nextSelected, extraIds);
+			dragIds.current = new Set([...nextSelected, ...extraIds]);
+			dragOriginalBoxes.current = [...nextSelected, ...extraIds].map((sid) => elements[sid]).filter(Boolean).map(elementBounds);
+			dragAppliedOffset.current = { dx: 0, dy: 0 };
+			setSnapGuides({ x: null, y: null });
+			dragStartWorld.current = world;
+			dragLastWorld.current = world;
+			return;
+		}
+
+		if (tool === 'text') {
+			const id = startElement('text', world.x, world.y);
+			updateElementLive(id, { width: 40, height: 26 });
+			setEditingTextId(id);
+			return;
+		}
+
+		const sp = snapPoint(world.x, world.y, snapEnabled);
+		const id = startElement(tool, sp.x, sp.y);
+		setDrawingId(id);
+		setDrawStart(sp);
+	};
+
+	const onMouseMove = () => {
+		const pos = stageRef.current?.getPointerPosition();
+		if (!pos) return;
+
+		if (panRef.current) {
+			setView({ offsetX: panRef.current.ox + (pos.x - panRef.current.x), offsetY: panRef.current.oy + (pos.y - panRef.current.y) });
+			return;
+		}
+
+		if (erasingRef.current) {
+			eraseAtPointer();
+			return;
+		}
+
+		const world = { x: (pos.x - view.offsetX) / view.scale, y: (pos.y - view.offsetY) / view.scale };
+		updateCursor(world.x, world.y);
+
+		if (dragLastWorld.current && dragStartWorld.current) {
+			const rawDx = world.x - dragStartWorld.current.x;
+			const rawDy = world.y - dragStartWorld.current.y;
+			const others = snapEnabled ? els.filter((el) => !dragIds.current.has(el.id)).map(elementBounds) : [];
+			const result =
+				others.length > 0
+					? snapMove(dragOriginalBoxes.current, rawDx, rawDy, others, SNAP_THRESHOLD_PX / view.scale)
+					: { dx: rawDx, dy: rawDy, guideX: null, guideY: null };
+			const deltaDx = result.dx - dragAppliedOffset.current.dx;
+			const deltaDy = result.dy - dragAppliedOffset.current.dy;
+			if (deltaDx !== 0 || deltaDy !== 0) dragBy(deltaDx, deltaDy);
+			dragAppliedOffset.current = { dx: result.dx, dy: result.dy };
+			setSnapGuides({ x: result.guideX, y: result.guideY });
+			return;
+		}
+
+		if (drawingId && drawStart) {
+			const sp = snapPoint(world.x, world.y, snapEnabled);
+			if (drawingId && elements[drawingId]?.type && ['line', 'arrow', 'draw'].includes(elements[drawingId].type)) {
+				const el = elements[drawingId];
+				if (el.type === 'draw') {
+					const points = [...(el.points ?? [0, 0]), sp.x - drawStart.x, sp.y - drawStart.y];
+					updateElementLive(drawingId, { points, width: Math.abs(sp.x - drawStart.x), height: Math.abs(sp.y - drawStart.y) });
+				} else {
+					updateElementLive(drawingId, {
+						points: [0, 0, sp.x - drawStart.x, sp.y - drawStart.y],
+						width: Math.abs(sp.x - drawStart.x),
+						height: Math.abs(sp.y - drawStart.y),
+					});
+				}
+			} else {
+				const r = normalizeRect(drawStart.x, drawStart.y, sp.x, sp.y);
+				updateElementLive(drawingId, r);
+			}
+			return;
+		}
+
+		if (marquee) setMarquee({ a: marquee.a, b: world });
+	};
+
+	const onMouseUp = () => {
+		panRef.current = null;
+		erasingRef.current = false;
+
+		if (dragLastWorld.current) {
+			dragLastWorld.current = null;
+			dragStartWorld.current = null;
+			dragOriginalBoxes.current = [];
+			dragIds.current = new Set();
+			setSnapGuides({ x: null, y: null });
+			endDrag();
+		}
+
+		if (drawingId) {
+			const el = elements[drawingId];
+			const tooSmall = el && el.width < MIN_DRAW_SIZE && el.height < MIN_DRAW_SIZE;
+			if (tooSmall) cancelElement(drawingId);
+			else {
+				finishElement(drawingId);
+				select([drawingId]);
+			}
+			setDrawingId(null);
+			setDrawStart(null);
+		}
+
+		if (marquee) {
+			const box = normalizeRect(marquee.a.x, marquee.a.y, marquee.b.x, marquee.b.y);
+			if (box.width > 4 || box.height > 4) {
+				const hits = els.filter((el) => rectsIntersect(box, elBounds(el)));
+				select(hits.map((el) => el.id));
+			}
+			setMarquee(null);
+		}
+	};
+
+	const onTransformStart = () => {
+		if (selected.length === 1) beginDrag(selected);
+	};
+
+	const onTransformEnd = () => {
+		const node = trRef.current?.nodes()[0];
+		const id = selected[0];
+		const el = id ? elements[id] : undefined;
+		if (!node || !el) return;
+		const sx = node.scaleX();
+		const sy = node.scaleY();
+		node.scaleX(1);
+		node.scaleY(1);
+		const w = Math.max(4, el.width * sx);
+		const h = Math.max(4, el.height * sy);
+		const angle = node.rotation();
+		if (el.type === 'ellipse') {
+			updateElementLive(id, { x: node.x() - w / 2, y: node.y() - h / 2, width: w, height: h, angle });
+		} else {
+			updateElementLive(id, { x: node.x(), y: node.y(), width: w, height: h, angle });
+		}
+		endDrag();
+	};
+
+	const editingElement = editingTextId ? elements[editingTextId] : null;
+
+	return (
+		<div ref={ref} className="relative h-full w-full overflow-hidden bg-canvas-bg">
+			<Stage
+				ref={stageRef}
+				width={width}
+				height={height}
+				onWheel={onWheel}
+				onMouseDown={onMouseDown}
+				onMouseMove={onMouseMove}
+				onMouseUp={onMouseUp}
+				onMouseLeave={onMouseUp}
+				onContextMenu={(e) => e.evt.preventDefault()}
+				style={{ cursor: tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+			>
+				<Layer listening={false}>
+					<GridDots view={view} width={width} height={height} />
+				</Layer>
+				<Layer>
+					{/* Пан/зум — трансформ застосований лише тут, не на Transformer нижче, тож ручки виділення
+					    завжди лишаються сталого розміру на екрані, а не масштабуються разом з фігурами. */}
+					<Group x={view.offsetX} y={view.offsetY} scaleX={view.scale} scaleY={view.scale}>
+						{els.map((el) => (
+							<ElementShape
+								key={el.id}
+								element={el}
+								selected={selected.includes(el.id)}
+								onDblClick={
+									el.type === 'text' ? () => setEditingTextId(el.id) : el.type === 'frame' ? () => setRenamingFrameId(el.id) : undefined
+								}
+							/>
+						))}
+						{marquee && (
+							<Rect
+								x={Math.min(marquee.a.x, marquee.b.x)}
+								y={Math.min(marquee.a.y, marquee.b.y)}
+								width={Math.abs(marquee.b.x - marquee.a.x)}
+								height={Math.abs(marquee.b.y - marquee.a.y)}
+								fill={canvasTheme.marqueeFill}
+								stroke={canvasTheme.marqueeStroke}
+								strokeWidth={1}
+							/>
+						)}
+					</Group>
+					<Transformer
+						ref={trRef}
+						onTransformStart={onTransformStart}
+						onTransformEnd={onTransformEnd}
+						rotateEnabled
+						borderStroke={canvasTheme.selectionStroke}
+						anchorStroke={canvasTheme.selectionStroke}
+						anchorFill="#ffffff"
+						anchorCornerRadius={4}
+					/>
+					{/* Лінії-підказки прив'язки до інших фігур — в екранних координатах (не в Group), тож
+					    завжди на весь видимий канвас незалежно від пан/зуму, як ручки Transformer'а вище. */}
+					{snapGuides.x !== null && (
+						<Line
+							points={[toScreen(snapGuides.x, 0, view).x, 0, toScreen(snapGuides.x, 0, view).x, height]}
+							stroke={canvasTheme.snapGuideStroke}
+							strokeWidth={1}
+							dash={[4, 4]}
+							listening={false}
+						/>
+					)}
+					{snapGuides.y !== null && (
+						<Line
+							points={[0, toScreen(0, snapGuides.y, view).y, width, toScreen(0, snapGuides.y, view).y]}
+							stroke={canvasTheme.snapGuideStroke}
+							strokeWidth={1}
+							dash={[4, 4]}
+							listening={false}
+						/>
+					)}
+				</Layer>
+			</Stage>
+			<CommentPins
+				comments={Object.values(comments)}
+				view={view}
+				activeCommentId={activeCommentId}
+				onSelect={(id) => {
+					setActiveComment(id);
+					setCommentsOpen(true);
+				}}
+			/>
+			<PresenceCursors presence={presence} selfUid={uid} view={view} />
+			{composerAt && (
+				<CommentComposer
+					x={composerAt.x}
+					y={composerAt.y}
+					view={view}
+					onCommit={(text) => {
+						addComment(composerAt.x, composerAt.y, text);
+						setComposerAt(null);
+					}}
+					onCancel={() => setComposerAt(null)}
+				/>
+			)}
+			{renamingFrameId && elements[renamingFrameId] && (
+				<FrameLabelEditor
+					element={elements[renamingFrameId]}
+					view={view}
+					onCommit={(text) => {
+						renameFrame(renamingFrameId, text);
+						setRenamingFrameId(null);
+					}}
+					onCancel={() => setRenamingFrameId(null)}
+				/>
+			)}
+			{editingElement && (
+				<TextEditorOverlay
+					element={editingElement}
+					view={view}
+					onCommit={(text, w, h) => {
+						updateElementLive(editingElement.id, { text, width: w, height: h });
+						finishElement(editingElement.id);
+						setEditingTextId(null);
+					}}
+					onCancel={() => {
+						cancelElement(editingElement.id);
+						setEditingTextId(null);
+					}}
+				/>
+			)}
+		</div>
+	);
+}
+
+function elBounds(el: ReturnType<typeof visibleElements>[number]): GeomRect {
+	return { x: el.x, y: el.y, width: el.width, height: el.height };
+}

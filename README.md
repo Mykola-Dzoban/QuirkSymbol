@@ -1,25 +1,30 @@
 # QuirkSymbol
 
-🌐🎉🚀
+Командна дошка для малювання — безкінечний канвас, фігури, і співпраця в реальному часі. Аналог
+Excalidraw з "преміальними" фічами (командний доступ до проєкту, реалтайм-синхронізація), власним
+візуальним стилем. Як і в excalidraw.com, відкриваєш сайт — і одразу малюєш без реєстрації
+(зберігається локально в браузері); вхід потрібен лише щоб створювати командні проєкти.
 
-This is my awesome website! It's all about having fun and enjoying all the little gimmicks. 🎊
+## Стек
 
-## Features
+Vite + React 19 + TypeScript + Tailwind v4 (CSS-first `@theme`) + Zustand + Konva/react-konva +
+React Router v7, на Firebase (Auth Google + Firestore).
 
-✨ None ✨
+## Розробка
 
-## Getting Started
+```bash
+npm install
+npm run dev       # http://localhost:5173
+npm run build     # tsc -b && vite build
+npm run lint
+npm run test       # vitest
+npm run deploy     # build + firebase deploy — деплоїть на живий хостинг, підтверджуй перед запуском
+```
 
-1. Clone this repository.
-2. Install the dependencies by running `npm install`.
-3. Start the development server by running `npm run dev`.
-4. Open your browser and navigate to `http://localhost:3000`.
-5. Explore and enjoy the emoji gimmicks!
+Скопіюй `.env.example` у `.env` і заповни значеннями зі свого Firebase-проєкту (Project settings →
+General → Your apps).
 
-## Contributing
+## Документація
 
-Contributions are welcome! If you have any cool emoji gimmicks to add, feel free to submit a pull request. 😊
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+- [`docs/PHASES.md`](docs/PHASES.md) — розбиття на фази розробки.
+- [`docs/FEATURES.md`](docs/FEATURES.md) — детальний фіче-чекліст відносно Excalidraw/Excalidraw+.
