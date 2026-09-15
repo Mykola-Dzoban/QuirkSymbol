@@ -53,17 +53,17 @@ export default function PropertiesPanel() {
 		distributeSelected,
 	} = useBoardStore();
 
-	const drawing = tool !== 'select' && tool !== 'pan' && tool !== 'eraser';
+	const drawing = tool !== 'select' && tool !== 'pan' && tool !== 'eraser' && tool !== 'laser';
 	const hasSelection = selected.length > 0;
 	const visible = drawing || hasSelection;
 	const multiSelected = selected.length > 1;
 	const canDistribute = selected.length > 2;
 	const canUngroup = selected.some((id) => elements[id]?.groupId);
-	// Кадр завжди нейтрального кольору, зображення взагалі не має "обведення/заповнення" в звичному
-	// сенсі (див. ElementShape) — свотчі для них нічого не змінюють, тож ховаємо, щоб не виглядало
-	// як непрацюючі кнопки.
+	// Кадр завжди нейтрального кольору, зображення й веб-вбудова взагалі не мають "обведення/заповнення"
+	// в звичному сенсі (див. ElementShape) — свотчі для них нічого не змінюють, тож ховаємо, щоб не
+	// виглядало як непрацюючі кнопки.
 	const noStyleControls = hasSelection
-		? selected.every((id) => elements[id]?.type === 'frame' || elements[id]?.type === 'image')
+		? selected.every((id) => ['frame', 'image', 'embed'].includes(elements[id]?.type ?? ''))
 		: tool === 'frame';
 
 	// Коли є виділення — показуємо стиль ПЕРШОГО обраного елемента; інакше — стиль наступної фігури.

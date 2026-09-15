@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
 	createElement,
+	createEmbedElement,
 	createImageElement,
 	DEFAULT_FILL,
 	DEFAULT_STROKE,
@@ -28,6 +29,8 @@ import { downloadJson, downloadText } from '../utils/downloadFile';
 const WRITE_THROTTLE_MS = 120;
 const LOCAL_SAVE_THROTTLE_MS = 300;
 const PRESENCE_WRITE_THROTTLE_MS = 150;
+/** Коли тягнеться лазерна указка, пишемо в presence частіше за звичайний курсор — плавніший слід. */
+const LASER_WRITE_THROTTLE_MS = 50;
 const PRESENCE_HEARTBEAT_MS = 5000;
 /** Фіксований "uid" для гостьової (без входу) дошки — потрібен лише як `updatedByUid` у локальних елементах. */
 const GUEST_UID = 'guest';
@@ -100,6 +103,7 @@ interface BoardState {
 	duplicateSelected: () => void;
 	/** `dataUrl` — уже стиснений на клієнті (див. `utils/imageCompress.ts`); (centerX, centerY) — world-точка центру. */
 	insertImage: (dataUrl: string, width: number, height: number, centerX: number, centerY: number) => void;
+	insertEmbed: (url: string, centerX: number, centerY: number) => void;
 	bringToFront: () => void;
 	sendToBack: () => void;
 	groupSelected: () => void;
@@ -126,7 +130,8 @@ interface BoardState {
 	addCommentReply: (commentId: string, text: string) => void;
 	setCommentResolved: (commentId: string, resolved: boolean) => void;
 	deleteComment: (commentId: string) => void;
-	updateCursor: (worldX: number, worldY: number) => void;
+	updateCursor: (worldX: number, worldY: number, laser?: boolean) => void;
+	stopLaser: () => void;
 }
 
 let unsubscribeSnapshot: (() => void) | null = null;
@@ -153,12 +158,21 @@ let presenceHeartbeat: ReturnType<typeof setInterval> | null = null;
 let cursorThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 /** Останні world-координати курсора — і те, що йде в наступний throttled запис, і те, що повторює heartbeat. */
 let lastCursorPos = { x: 0, y: 0 };
+/** Чи зараз затиснута лазерна указка (`Tool.laser`) — теж іде в наступний presence-запис/heartbeat. */
+let lastLaserActive = false;
 
 function writePresence(get: () => BoardState) {
 	const { projectId, uid, displayName } = get();
 	if (!projectId || !uid) return;
 	dbPresence(projectId)
-		.set(uid, { displayName: displayName ?? 'Учасник', color: colorForUid(uid), cursorX: lastCursorPos.x, cursorY: lastCursorPos.y, updatedAt: Date.now() })
+		.set(uid, {
+			displayName: displayName ?? 'Учасник',
+			color: colorForUid(uid),
+			cursorX: lastCursorPos.x,
+			cursorY: lastCursorPos.y,
+			updatedAt: Date.now(),
+			isLaserActive: lastLaserActive,
+		})
 		.catch(() => {});
 }
 
@@ -465,6 +479,15 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 		markDirty(el.id, get);
 	},
 
+	insertEmbed: (url, centerX, centerY) => {
+		const { elements, uid, history } = get();
+		if (!uid) return;
+		const el = createEmbedElement(url, centerX, centerY, uid, nextZIndex(elements));
+		const next = { ...elements, [el.id]: el };
+		set({ elements: next, selected: [el.id], history: commit(history, elements), dirty: true });
+		markDirty(el.id, get);
+	},
+
 	bringToFront: () => {
 		const { selected, elements, uid, history } = get();
 		if (selected.length === 0 || !uid) return;
@@ -655,14 +678,26 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 			.catch((err) => console.error('Не вдалося видалити коментар:', err));
 	},
 
-	/** Викликає BoardCanvas на кожен mousemove зі світовими координатами — throttled запис у presence. */
-	updateCursor: (worldX, worldY) => {
+	/** Викликає BoardCanvas на кожен mousemove зі світовими координатами — throttled запис у presence.
+	 *  `laser=true`, поки затиснута лазерна указка (`Tool.laser`) — пишемо частіше для плавнішого сліду. */
+	updateCursor: (worldX, worldY, laser = false) => {
 		lastCursorPos = { x: worldX, y: worldY };
+		lastLaserActive = laser;
 		if (get().mode !== 'cloud' || cursorThrottleTimer) return;
-		cursorThrottleTimer = setTimeout(() => {
-			cursorThrottleTimer = null;
-			writePresence(get);
-		}, PRESENCE_WRITE_THROTTLE_MS);
+		cursorThrottleTimer = setTimeout(
+			() => {
+				cursorThrottleTimer = null;
+				writePresence(get);
+			},
+			laser ? LASER_WRITE_THROTTLE_MS : PRESENCE_WRITE_THROTTLE_MS,
+		);
+	},
+
+	/** Мишу відпустили під час малювання лазером — одразу (без throttle) повідомляємо інших, що слід
+	 *  більше не росте, а не чекаємо наступного heartbeat (до 5с). */
+	stopLaser: () => {
+		lastLaserActive = false;
+		writePresence(get);
 	},
 }));
 

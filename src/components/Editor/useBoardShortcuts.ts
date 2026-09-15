@@ -14,6 +14,7 @@ const SHORTCUTS: Record<string, Tool> = {
 	f: 'frame',
 	e: 'eraser',
 	h: 'pan',
+	k: 'laser',
 };
 
 /** Гарячі клавіші канвасу — спільні для гостьової дошки (`GuestBoard`) і хмарного проєкту (`Editor`). */

@@ -3,6 +3,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { useEffect, useRef, useState } from 'react';
 import { Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { groupMembers, visibleElements, type BoardElement } from '../../../domain/board';
+import { LASER_FADE_MS } from '../../../domain/comment';
 import { elementBounds, normalizeRect, rectContains, rectsIntersect, snapMove, type Rect as GeomRect } from '../../../domain/geometry';
 import { snapPoint } from '../../../domain/snapping';
 import { toScreen } from '../../../domain/view';
@@ -12,14 +13,22 @@ import { useElementSize } from '../../../utils/useElementSize';
 import CommentComposer from '../render/CommentComposer';
 import CommentPins from '../render/CommentPins';
 import ElementShape from '../render/ElementShape';
+import EmbedOverlays from '../render/EmbedOverlays';
 import FrameLabelEditor from '../render/FrameLabelEditor';
 import GridDots from '../render/GridDots';
+import LaserTrails, { type LaserPoint } from '../render/LaserTrails';
 import PresenceCursors from '../render/PresenceCursors';
 import TextEditorOverlay from '../render/TextEditorOverlay';
 import { canvasTheme } from '../render/theme';
 import { useImageInsert } from '../useImageInsert';
 
-const TRANSFORMABLE = new Set(['rectangle', 'ellipse', 'diamond', 'frame', 'image']);
+const TRANSFORMABLE = new Set(['rectangle', 'ellipse', 'diamond', 'frame', 'image', 'embed']);
+/** Обгортка над `Date.now()` для лазерного сліду — виклик поза тілом компонента, щоб react-hooks/purity
+ *  не сприймав його як нечисту функцію всередині рендеру (хендлери й так виконуються не під час рендеру,
+ *  але лінтер аналізує лексичний скоуп). */
+function now(): number {
+	return Date.now();
+}
 const MIN_DRAW_SIZE = 4;
 /** Магнітна відстань до країв/центрів інших фігур під час перетягування — у ЕКРАННИХ пікселях (не world). */
 const SNAP_THRESHOLD_PX = 8;
@@ -58,6 +67,7 @@ export default function BoardCanvas() {
 		setActiveComment,
 		setCommentsOpen,
 		updateCursor,
+		stopLaser,
 		renameFrame,
 	} = useBoardStore();
 
@@ -66,6 +76,7 @@ export default function BoardCanvas() {
 	const [marquee, setMarquee] = useState<{ a: { x: number; y: number }; b: { x: number; y: number } } | null>(null);
 	const [editingTextId, setEditingTextId] = useState<string | null>(null);
 	const [renamingFrameId, setRenamingFrameId] = useState<string | null>(null);
+	const [activeEmbedId, setActiveEmbedId] = useState<string | null>(null);
 	const [composerAt, setComposerAt] = useState<{ x: number; y: number } | null>(null);
 	const panRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 	const dragLastWorld = useRef<{ x: number; y: number } | null>(null);
@@ -76,10 +87,21 @@ export default function BoardCanvas() {
 	const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
 	const erasingRef = useRef(false);
 	const spaceRef = useRef(false);
+	const laserDrawingRef = useRef(false);
+	const [ownLaserPoints, setOwnLaserPoints] = useState<LaserPoint[]>([]);
 
 	useEffect(() => {
 		setStageSize({ width, height });
 	}, [width, height, setStageSize]);
+
+	// Escape виходить з "активованої" вбудови (Tool.embed, live iframe) так само, як скидає виділення
+	// деінде — окремий локальний слухач, бо `useBoardShortcuts` не знає про цей локальний стан BoardCanvas.
+	useEffect(() => {
+		if (!activeEmbedId) return;
+		const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setActiveEmbedId(null);
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [activeEmbedId]);
 
 	// Реєструємо один раз — читає свіжий стан через getState(), тож не залежить від замикання React.
 	useEffect(() => {
@@ -227,6 +249,10 @@ export default function BoardCanvas() {
 		// Canvas не є фокусованим елементом — без цього браузер вважає mousedown кліком "мимо" і
 		// забирає фокус з щойно змонтованого <textarea> (text tool) ще до mouseup того самого кліку.
 		e.evt.preventDefault();
+		// Цей обробник взагалі спрацьовує, лише коли клік влучив ПОЗА активним iframe вбудови (сам
+		// iframe, поки активний, перехоплює клік ще до Konva) — тож дійшовши сюди, безпечно вийти з
+		// режиму "активної" вбудови незалежно від того, що далі клацнули.
+		if (activeEmbedId) setActiveEmbedId(null);
 		if (tool === 'pan' || spaceRef.current || e.evt.button === 1) {
 			const p = stageRef.current!.getPointerPosition()!;
 			panRef.current = { x: p.x, y: p.y, ox: view.offsetX, oy: view.offsetY };
@@ -240,6 +266,13 @@ export default function BoardCanvas() {
 		if (tool === 'eraser') {
 			erasingRef.current = true;
 			eraseAtPointer();
+			return;
+		}
+
+		if (tool === 'laser') {
+			laserDrawingRef.current = true;
+			setOwnLaserPoints([{ x: world.x, y: world.y, t: now() }]);
+			updateCursor(world.x, world.y, true);
 			return;
 		}
 
@@ -316,6 +349,14 @@ export default function BoardCanvas() {
 		}
 
 		const world = { x: (pos.x - view.offsetX) / view.scale, y: (pos.y - view.offsetY) / view.scale };
+
+		if (laserDrawingRef.current) {
+			const t = now();
+			setOwnLaserPoints((pts) => [...pts, { x: world.x, y: world.y, t }].filter((p) => t - p.t < LASER_FADE_MS));
+			updateCursor(world.x, world.y, true);
+			return;
+		}
+
 		updateCursor(world.x, world.y);
 
 		if (dragLastWorld.current && dragStartWorld.current) {
@@ -361,6 +402,11 @@ export default function BoardCanvas() {
 	const onMouseUp = () => {
 		panRef.current = null;
 		erasingRef.current = false;
+
+		if (laserDrawingRef.current) {
+			laserDrawingRef.current = false;
+			stopLaser();
+		}
 
 		if (dragLastWorld.current) {
 			dragLastWorld.current = null;
@@ -446,7 +492,13 @@ export default function BoardCanvas() {
 								element={el}
 								selected={selected.includes(el.id)}
 								onDblClick={
-									el.type === 'text' ? () => setEditingTextId(el.id) : el.type === 'frame' ? () => setRenamingFrameId(el.id) : undefined
+									el.type === 'text'
+										? () => setEditingTextId(el.id)
+										: el.type === 'frame'
+											? () => setRenamingFrameId(el.id)
+											: el.type === 'embed'
+												? () => setActiveEmbedId(el.id)
+												: undefined
 								}
 							/>
 						))}
@@ -503,7 +555,9 @@ export default function BoardCanvas() {
 					setCommentsOpen(true);
 				}}
 			/>
+			<EmbedOverlays elements={els.filter((el) => el.type === 'embed')} selected={selected} activeEmbedId={activeEmbedId} view={view} />
 			<PresenceCursors presence={presence} selfUid={uid} view={view} />
+			<LaserTrails own={ownLaserPoints} ownUid={uid} presence={presence} selfUid={uid} view={view} />
 			{composerAt && (
 				<CommentComposer
 					x={composerAt.x}

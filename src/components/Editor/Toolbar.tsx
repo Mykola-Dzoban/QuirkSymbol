@@ -3,7 +3,9 @@ import {
 	Circle,
 	Diamond,
 	Eraser,
+	Flashlight,
 	Frame,
+	Globe,
 	Hand,
 	Image as ImageIcon,
 	type LucideIcon,
@@ -14,10 +16,12 @@ import {
 	Square,
 	Type,
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type { Tool } from '../../domain/board';
 import { useBoardStore } from '../../store/useBoardStore';
 import { cn } from '../../utils/cn';
+import EmbedDialog from './EmbedDialog';
+import { useEmbedInsert } from './useEmbedInsert';
 import { useImageInsert } from './useImageInsert';
 
 const TOOLS: { tool: Tool; icon: LucideIcon; label: string; shortcut: string }[] = [
@@ -32,13 +36,16 @@ const TOOLS: { tool: Tool; icon: LucideIcon; label: string; shortcut: string }[]
 	{ tool: 'text', icon: Type, label: 'Текст', shortcut: 'T' },
 	{ tool: 'frame', icon: Frame, label: 'Кадр', shortcut: 'F' },
 	{ tool: 'eraser', icon: Eraser, label: 'Гумка', shortcut: 'E' },
+	{ tool: 'laser', icon: Flashlight, label: 'Лазерна указка', shortcut: 'K' },
 ];
 
 /** Плаваюча горизонтальна панель інструментів по центру зверху канвасу (як в Excalidraw), а не бічна рейка. */
 export default function Toolbar() {
 	const { tool, setTool, mode } = useBoardStore();
 	const insertImageFromFile = useImageInsert();
+	const insertEmbed = useEmbedInsert();
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const [embedDialogOpen, setEmbedDialogOpen] = useState(false);
 
 	return (
 		<div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
@@ -73,6 +80,23 @@ export default function Toolbar() {
 						const file = e.target.files?.[0];
 						e.target.value = '';
 						if (file) insertImageFromFile(file);
+					}}
+				/>
+				{/* Веб-вбудова — так само одноразова дія (посилання в діалозі), а не "тул". */}
+				<button
+					title="Веб-вбудова"
+					onClick={() => setEmbedDialogOpen(true)}
+					className="flex h-10 w-10 items-center justify-center rounded-xl text-page-text transition-colors hover:bg-page-bg"
+				>
+					<Globe className="h-5 w-5" />
+				</button>
+				<EmbedDialog
+					open={embedDialogOpen}
+					onClose={() => setEmbedDialogOpen(false)}
+					onSubmit={(url) => {
+						const success = insertEmbed(url);
+						if (success) setEmbedDialogOpen(false);
+						return success;
 					}}
 				/>
 				{/* Коментарі (Фаза 2) — лише в командних проєктах: у гостьовій дошці нема з ким коментувати. */}

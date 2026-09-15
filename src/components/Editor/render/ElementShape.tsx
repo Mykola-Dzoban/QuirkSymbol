@@ -164,6 +164,33 @@ const ElementShape = forwardRef<Konva.Node, ElementShapeProps>(({ element: el, s
 		case 'image':
 			if (!loadedImage) return null;
 			return <KonvaImage ref={ref as never} {...common} x={el.x} y={el.y} width={el.width} height={el.height} image={loadedImage} />;
+		case 'embed': {
+			// Живий iframe малює `EmbedOverlays` (HTML-оверлей поверх канвасу, не Konva) — тут лише
+			// заглушка-плейсхолдер з адресою хосту: сама фігура (для select/resize/групування) завжди
+			// на канвасі, а iframe ховається, поки вона виділена (інакше Transformer-ручки опиняються
+			// ПІД справжнім DOM-елементом і стають нерухомими).
+			let hostname = el.src ?? '';
+			try {
+				hostname = new URL(el.src ?? '').hostname;
+			} catch {
+				// лишаємо сирий src, якщо раптом не розпарсився — не критично для підпису-заглушки
+			}
+			return (
+				<Group ref={ref as never} {...common} x={el.x} y={el.y}>
+					<Rect id={el.id} width={el.width} height={el.height} fill={canvasTheme.embedFill} stroke={canvasTheme.frameStroke} strokeWidth={1.5} cornerRadius={8} />
+					<KonvaText
+						id={el.id}
+						y={el.height / 2 - 9}
+						width={el.width}
+						align="center"
+						text={hostname}
+						fontSize={13}
+						fontFamily="Inter, sans-serif"
+						fill={canvasTheme.frameStroke}
+					/>
+				</Group>
+			);
+		}
 		default:
 			return null;
 	}

@@ -1,14 +1,31 @@
 import { nanoid } from 'nanoid';
 
 /**
- * Інструмент, обраний у Toolbar. `select`/`pan`/`comment` не створюють елементів фігур. `image` теж
- * сюди не належить у сенсі "активного тулу" — зображення вставляються одноразовою дією (файл/paste),
- * а не drag-малюванням, тож `Toolbar` ніколи не викликає `setTool('image')`. Він у `Tool` лише щоб
- * `ElementType` (нижче) природно включав його через `Exclude`.
+ * Інструмент, обраний у Toolbar. `select`/`pan`/`comment`/`laser` не створюють елементів фігур. `image`/
+ * `embed` теж сюди не належать у сенсі "активного тулу" — вставляються одноразовою дією (файл/paste для
+ * зображення, посилання в діалозі для вбудови), а не drag-малюванням, тож `Toolbar` ніколи не викликає
+ * `setTool('image' | 'embed')`. Вони у `Tool` лише щоб `ElementType` (нижче) природно включав їх через
+ * `Exclude`. `laser` — тимчасова згасаюча указка (не елемент дошки, не зберігається): курсор під час
+ * перетягування лишає слід, що зникає за ~секунду, як в Excalidraw.
  */
-export type Tool = 'select' | 'rectangle' | 'ellipse' | 'diamond' | 'arrow' | 'line' | 'draw' | 'text' | 'frame' | 'image' | 'eraser' | 'pan' | 'comment';
+export type Tool =
+	| 'select'
+	| 'rectangle'
+	| 'ellipse'
+	| 'diamond'
+	| 'arrow'
+	| 'line'
+	| 'draw'
+	| 'text'
+	| 'frame'
+	| 'image'
+	| 'embed'
+	| 'eraser'
+	| 'pan'
+	| 'comment'
+	| 'laser';
 
-export type ElementType = Exclude<Tool, 'select' | 'eraser' | 'pan' | 'comment'>;
+export type ElementType = Exclude<Tool, 'select' | 'eraser' | 'pan' | 'comment' | 'laser'>;
 
 /**
  * Одна фігура на дошці — документ у `projects/{id}/elements/{elementId}`.
@@ -25,7 +42,7 @@ export interface BoardElement {
 	angle: number;
 	points?: number[];
 	text?: string;
-	/** Стиснене зображення як data URI (`type === 'image'`) — див. `utils/imageCompress.ts`. */
+	/** Стиснене зображення як data URI (`type === 'image'`) або URL вбудованої сторінки (`type === 'embed'`). */
 	src?: string;
 	stroke: string;
 	fill: string;
@@ -97,6 +114,42 @@ export function createImageElement(
 		height,
 		angle: 0,
 		src,
+		stroke: DEFAULT_STROKE,
+		fill: DEFAULT_FILL,
+		strokeWidth: DEFAULT_STROKE_WIDTH,
+		opacity: 1,
+		zIndex,
+		deleted: false,
+		updatedAt: Date.now(),
+		updatedByUid,
+		version: 1,
+	};
+}
+
+const DEFAULT_EMBED_WIDTH = 480;
+const DEFAULT_EMBED_HEIGHT = 320;
+
+/** Лише `http(s)` — блокує `javascript:`/`data:`/інші схеми, які в `<iframe src>` є ризиком, не фічею. */
+export function isEmbeddableUrl(url: string): boolean {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
+/** Веб-вбудова вставляється готовою (адреса — з діалогу), не drag-малюванням — центрована в `(centerX, centerY)`. */
+export function createEmbedElement(url: string, centerX: number, centerY: number, updatedByUid: string, zIndex: number): BoardElement {
+	return {
+		id: newElementId(),
+		type: 'embed',
+		x: centerX - DEFAULT_EMBED_WIDTH / 2,
+		y: centerY - DEFAULT_EMBED_HEIGHT / 2,
+		width: DEFAULT_EMBED_WIDTH,
+		height: DEFAULT_EMBED_HEIGHT,
+		angle: 0,
+		src: url,
 		stroke: DEFAULT_STROKE,
 		fill: DEFAULT_FILL,
 		strokeWidth: DEFAULT_STROKE_WIDTH,
