@@ -86,7 +86,8 @@ export default function BoardCanvas() {
 	const dragAppliedOffset = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
 	const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
 	const erasingRef = useRef(false);
-	const spaceRef = useRef(false);
+	const [spacePressed, setSpacePressed] = useState(false);
+	const [isPanning, setIsPanning] = useState(false);
 	const laserDrawingRef = useRef(false);
 	const [ownLaserPoints, setOwnLaserPoints] = useState<LaserPoint[]>([]);
 
@@ -149,9 +150,11 @@ export default function BoardCanvas() {
 		return () => registerStageExport(null);
 	}, [registerStageExport]);
 
+	// Реактивний стан (не ref) — курсор має відразу показати "рука" на Space, а не чекати наступного
+	// ре-рендеру з іншої причини.
 	useEffect(() => {
-		const down = (e: KeyboardEvent) => e.code === 'Space' && (spaceRef.current = true);
-		const up = (e: KeyboardEvent) => e.code === 'Space' && (spaceRef.current = false);
+		const down = (e: KeyboardEvent) => e.code === 'Space' && setSpacePressed(true);
+		const up = (e: KeyboardEvent) => e.code === 'Space' && setSpacePressed(false);
 		window.addEventListener('keydown', down);
 		window.addEventListener('keyup', up);
 		return () => {
@@ -253,9 +256,10 @@ export default function BoardCanvas() {
 		// iframe, поки активний, перехоплює клік ще до Konva) — тож дійшовши сюди, безпечно вийти з
 		// режиму "активної" вбудови незалежно від того, що далі клацнули.
 		if (activeEmbedId) setActiveEmbedId(null);
-		if (tool === 'pan' || spaceRef.current || e.evt.button === 1) {
+		if (tool === 'pan' || spacePressed || e.evt.button === 1) {
 			const p = stageRef.current!.getPointerPosition()!;
 			panRef.current = { x: p.x, y: p.y, ox: view.offsetX, oy: view.offsetY };
+			setIsPanning(true);
 			return;
 		}
 		if (e.evt.button === 2) return;
@@ -405,6 +409,7 @@ export default function BoardCanvas() {
 
 	const onMouseUp = () => {
 		panRef.current = null;
+		setIsPanning(false);
 		erasingRef.current = false;
 
 		if (laserDrawingRef.current) {
@@ -481,7 +486,9 @@ export default function BoardCanvas() {
 				onMouseUp={onMouseUp}
 				onMouseLeave={onMouseUp}
 				onContextMenu={(e) => e.evt.preventDefault()}
-				style={{ cursor: tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+				style={{
+					cursor: isPanning ? 'grabbing' : tool === 'pan' || spacePressed ? 'grab' : tool === 'select' ? 'default' : 'crosshair',
+				}}
 			>
 				<Layer listening={false}>
 					<GridDots view={view} width={width} height={height} />
@@ -522,7 +529,11 @@ export default function BoardCanvas() {
 						ref={trRef}
 						onTransformStart={onTransformStart}
 						onTransformEnd={onTransformEnd}
-						rotateEnabled
+						// Кадр не можна обертати: `elementBounds`/`frameChildren`/snap/align усюди свідомо
+						// ігнорують `angle` (задокументовано в geometry.ts як спрощення MVP), тож обертання
+						// зламало б підбір "дітей" кадру, а `FrameLabelEditor` — HTML-інпут поверх Konva —
+						// теж не обертається разом з підписом. Простіше не дозволяти, ніж узгоджувати все це.
+						rotateEnabled={!selected.some((id) => elements[id]?.type === 'frame')}
 						borderStroke={canvasTheme.selectionStroke}
 						anchorStroke={canvasTheme.selectionStroke}
 						anchorFill="#ffffff"
