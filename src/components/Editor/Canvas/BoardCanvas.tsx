@@ -17,8 +17,9 @@ import GridDots from '../render/GridDots';
 import PresenceCursors from '../render/PresenceCursors';
 import TextEditorOverlay from '../render/TextEditorOverlay';
 import { canvasTheme } from '../render/theme';
+import { useImageInsert } from '../useImageInsert';
 
-const TRANSFORMABLE = new Set(['rectangle', 'ellipse', 'diamond', 'frame']);
+const TRANSFORMABLE = new Set(['rectangle', 'ellipse', 'diamond', 'frame', 'image']);
 const MIN_DRAW_SIZE = 4;
 /** Магнітна відстань до країв/центрів інших фігур під час перетягування — у ЕКРАННИХ пікселях (не world). */
 const SNAP_THRESHOLD_PX = 8;
@@ -137,24 +138,57 @@ export default function BoardCanvas() {
 		};
 	}, []);
 
+	// Ctrl+V із зображенням у буфері — вставляє по центру вʼюпорту (та сама логіка, що й кнопка
+	// "Зображення" на тулбарі). Якщо в буфері текст (не картинка), `item` не знайдеться й paste
+	// пройде звичайним шляхом (наприклад, у підпис кадру чи текстовий оверлей).
+	const insertImageFromFile = useImageInsert();
+	useEffect(() => {
+		const onPaste = (e: ClipboardEvent) => {
+			const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+			const file = item?.getAsFile();
+			if (!file) return;
+			e.preventDefault();
+			insertImageFromFile(file);
+		};
+		window.addEventListener('paste', onPaste);
+		return () => window.removeEventListener('paste', onPaste);
+	}, [insertImageFromFile]);
+
 	const els = visibleElements(elements);
 
 	useEffect(() => {
 		const tr = trRef.current;
 		const stage = stageRef.current;
 		if (!tr || !stage) return;
-		if (tool === 'select' && selected.length === 1) {
-			const el = elements[selected[0]];
-			if (el && TRANSFORMABLE.has(el.type)) {
-				const node = stage.findOne(`#${el.id}`);
-				if (node) {
-					tr.nodes([node]);
-					tr.getLayer()?.batchDraw();
-					return;
+		let raf = 0;
+		let cancelled = false;
+		// Щойно вставлене зображення ще не має Konva-вузла в перший момент — `useLoadedImage`
+		// вантажить `HTMLImageElement` асинхронно, і `ElementShape` рендерить null, поки не готово.
+		// Тож якщо `findOne` не знайшов вузол одразу, пробуємо ще кілька кадрів, а не здаємось миттєво.
+		const attempt = (triesLeft: number) => {
+			if (cancelled) return;
+			if (tool === 'select' && selected.length === 1) {
+				const el = elements[selected[0]];
+				if (el && TRANSFORMABLE.has(el.type)) {
+					const node = stage.findOne(`#${el.id}`);
+					if (node) {
+						tr.nodes([node]);
+						tr.getLayer()?.batchDraw();
+						return;
+					}
+					if (triesLeft > 0) {
+						raf = requestAnimationFrame(() => attempt(triesLeft - 1));
+						return;
+					}
 				}
 			}
-		}
-		tr.nodes([]);
+			tr.nodes([]);
+		};
+		attempt(15);
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(raf);
+		};
 	}, [selected, tool, elements]);
 
 	const pointerWorld = (): { x: number; y: number } | null => {

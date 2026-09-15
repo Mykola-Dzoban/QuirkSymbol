@@ -1,8 +1,9 @@
 import Konva from 'konva';
 import { forwardRef } from 'react';
-import { Arrow, Ellipse, Group, Line, Rect, Text as KonvaText } from 'react-konva';
+import { Arrow, Ellipse, Group, Image as KonvaImage, Line, Rect, Text as KonvaText } from 'react-konva';
 import type { BoardElement } from '../../../domain/board';
 import { canvasTheme } from './theme';
+import { useLoadedImage } from './useLoadedImage';
 
 interface ElementShapeProps {
 	element: BoardElement;
@@ -16,6 +17,10 @@ interface ElementShapeProps {
  * `e.target`), тож тут потрібен лише `onDblClick` — подвійний клік на тексті відкриває редагування.
  */
 const ElementShape = forwardRef<Konva.Node, ElementShapeProps>(({ element: el, selected, onDblClick }, ref) => {
+	// Хук викликається БЕЗУМОВНО для кожного елемента (правила хуків), навіть якщо він не 'image' —
+	// тоді `src` undefined і хук одразу повертає null, майже без вартості.
+	const loadedImage = useLoadedImage(el.type === 'image' ? el.src : undefined);
+
 	const shadowProps = selected
 		? {
 				shadowColor: canvasTheme.selectionShadowColor,
@@ -156,6 +161,9 @@ const ElementShape = forwardRef<Konva.Node, ElementShapeProps>(({ element: el, s
 					<KonvaText id={el.id} x={0} y={-20} text={el.text || 'Кадр'} fontSize={13} fontFamily="Inter, sans-serif" fill={canvasTheme.frameStroke} />
 				</Group>
 			);
+		case 'image':
+			if (!loadedImage) return null;
+			return <KonvaImage ref={ref as never} {...common} x={el.x} y={el.y} width={el.width} height={el.height} image={loadedImage} />;
 		default:
 			return null;
 	}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
 	createElement,
+	createImageElement,
 	DEFAULT_FILL,
 	DEFAULT_STROKE,
 	DEFAULT_STROKE_WIDTH,
@@ -97,6 +98,8 @@ interface BoardState {
 	deleteSelected: () => void;
 	clearBoard: () => void;
 	duplicateSelected: () => void;
+	/** `dataUrl` — уже стиснений на клієнті (див. `utils/imageCompress.ts`); (centerX, centerY) — world-точка центру. */
+	insertImage: (dataUrl: string, width: number, height: number, centerX: number, centerY: number) => void;
 	bringToFront: () => void;
 	sendToBack: () => void;
 	groupSelected: () => void;
@@ -451,6 +454,15 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 			markDirty(copyId, get);
 		}
 		set({ elements: next, selected: newIds, history: commit(history, elements), dirty: true });
+	},
+
+	insertImage: (dataUrl, width, height, centerX, centerY) => {
+		const { elements, uid, history } = get();
+		if (!uid) return;
+		const el = createImageElement(dataUrl, width, height, centerX, centerY, uid, nextZIndex(elements));
+		const next = { ...elements, [el.id]: el };
+		set({ elements: next, selected: [el.id], history: commit(history, elements), dirty: true });
+		markDirty(el.id, get);
 	},
 
 	bringToFront: () => {

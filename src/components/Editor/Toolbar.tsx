@@ -5,6 +5,7 @@ import {
 	Eraser,
 	Frame,
 	Hand,
+	Image as ImageIcon,
 	type LucideIcon,
 	MessageCircle,
 	MousePointer2,
@@ -13,9 +14,11 @@ import {
 	Square,
 	Type,
 } from 'lucide-react';
+import { useRef } from 'react';
 import type { Tool } from '../../domain/board';
 import { useBoardStore } from '../../store/useBoardStore';
 import { cn } from '../../utils/cn';
+import { useImageInsert } from './useImageInsert';
 
 const TOOLS: { tool: Tool; icon: LucideIcon; label: string; shortcut: string }[] = [
 	{ tool: 'pan', icon: Hand, label: 'Панорама', shortcut: 'H' },
@@ -34,6 +37,8 @@ const TOOLS: { tool: Tool; icon: LucideIcon; label: string; shortcut: string }[]
 /** Плаваюча горизонтальна панель інструментів по центру зверху канвасу (як в Excalidraw), а не бічна рейка. */
 export default function Toolbar() {
 	const { tool, setTool, mode } = useBoardStore();
+	const insertImageFromFile = useImageInsert();
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	return (
 		<div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
@@ -51,6 +56,25 @@ export default function Toolbar() {
 						<Icon className="h-5 w-5" />
 					</button>
 				))}
+				{/* Вставка зображення — одноразова дія (файл з диска), а не "тул", що лишається активним. */}
+				<button
+					title="Зображення"
+					onClick={() => fileInputRef.current?.click()}
+					className="flex h-10 w-10 items-center justify-center rounded-xl text-page-text transition-colors hover:bg-page-bg"
+				>
+					<ImageIcon className="h-5 w-5" />
+				</button>
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/*"
+					className="hidden"
+					onChange={(e) => {
+						const file = e.target.files?.[0];
+						e.target.value = '';
+						if (file) insertImageFromFile(file);
+					}}
+				/>
 				{/* Коментарі (Фаза 2) — лише в командних проєктах: у гостьовій дошці нема з ким коментувати. */}
 				{mode === 'cloud' && (
 					<>

@@ -59,9 +59,12 @@ export default function PropertiesPanel() {
 	const multiSelected = selected.length > 1;
 	const canDistribute = selected.length > 2;
 	const canUngroup = selected.some((id) => elements[id]?.groupId);
-	// Кадр (Frame tool) завжди нейтрального кольору (див. ElementShape) — свотчі обведення/заповнення/
-	// товщини для нього нічого не змінюють, тож ховаємо їх, щоб не виглядало як непрацююча кнопка.
-	const frameOnly = hasSelection ? selected.every((id) => elements[id]?.type === 'frame') : tool === 'frame';
+	// Кадр завжди нейтрального кольору, зображення взагалі не має "обведення/заповнення" в звичному
+	// сенсі (див. ElementShape) — свотчі для них нічого не змінюють, тож ховаємо, щоб не виглядало
+	// як непрацюючі кнопки.
+	const noStyleControls = hasSelection
+		? selected.every((id) => elements[id]?.type === 'frame' || elements[id]?.type === 'image')
+		: tool === 'frame';
 
 	// Коли є виділення — показуємо стиль ПЕРШОГО обраного елемента; інакше — стиль наступної фігури.
 	const active = hasSelection ? (elements[selected[0]] ?? null) : null;
@@ -78,7 +81,7 @@ export default function PropertiesPanel() {
 			)}
 		>
 			<div className="flex h-full w-52 flex-col gap-4 p-3 text-sm">
-				{!frameOnly && (
+				{!noStyleControls && (
 					<>
 						<div>
 							<div className="mb-1.5 text-xs font-medium text-muted">Обведення</div>
