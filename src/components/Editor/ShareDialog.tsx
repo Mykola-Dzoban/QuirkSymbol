@@ -46,8 +46,10 @@ export default function ShareDialog({ project, onClose, onAddMember, onRemoveMem
 		}
 	};
 
+	// pt-36 (144px) — очищає TopBar (h-14 = 56px) + плаваючий Toolbar під ним (top-3 + ~54px висоти ≈
+	// до 122px), інакше діалог накладається на нижній край Toolbar (обидва по центру екрана).
 	return (
-		<div className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 pt-24" onClick={onClose}>
+		<div className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 pt-36" onClick={onClose}>
 			<div
 				className="w-full max-w-sm rounded-xl border border-panel-border bg-panel p-4 shadow-xl"
 				onClick={(e) => e.stopPropagation()}

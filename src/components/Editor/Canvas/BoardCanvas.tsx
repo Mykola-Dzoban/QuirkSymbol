@@ -328,7 +328,10 @@ export default function BoardCanvas() {
 			return;
 		}
 
-		const sp = snapPoint(world.x, world.y, snapEnabled);
+		// Малювання олівцем НІКОЛИ не прив'язується до сітки — прив'язка кожної точки довільного мазка
+		// перетворює плавний рух руки на "сходинки" вздовж ліній сітки (виглядає як збій рендеру).
+		// Для прямокутника/лінії/стрілки прив'язка одної точки — очікувана й корисна поведінка.
+		const sp = tool === 'draw' ? world : snapPoint(world.x, world.y, snapEnabled);
 		const id = startElement(tool, sp.x, sp.y);
 		setDrawingId(id);
 		setDrawStart(sp);
@@ -376,7 +379,8 @@ export default function BoardCanvas() {
 		}
 
 		if (drawingId && drawStart) {
-			const sp = snapPoint(world.x, world.y, snapEnabled);
+			const isDraw = elements[drawingId]?.type === 'draw';
+			const sp = isDraw ? world : snapPoint(world.x, world.y, snapEnabled);
 			if (drawingId && elements[drawingId]?.type && ['line', 'arrow', 'draw'].includes(elements[drawingId].type)) {
 				const el = elements[drawingId];
 				if (el.type === 'draw') {
